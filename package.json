@@ -10,12 +10,16 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "tsc",
-    "start": "node dist/cli.js"
+    "start": "node dist/cli.js",
+    "hyra-pi": "node dist/cli.js"
   },
   "engines": {
     "node": ">=20"
   },
   "license": "MIT",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.4"
+  },
   "devDependencies": {
     "@types/node": "^26.4.0",
     "typescript": "^7.0.2",
