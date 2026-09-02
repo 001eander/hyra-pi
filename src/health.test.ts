@@ -79,7 +79,21 @@ describe("assessHealth", () => {
     ).toEqual({ healthy: false, reason: "队列里有活，但没人领" });
   });
 
-  it("flags Context going quiet while every proposal slot is busy", () => {
+  it("does not flag waiting work while Context is still producing", () => {
+    expect(
+      assessHealth(
+        running({
+          waitingCount: 2,
+          proposalsInFlight: 0,
+          writers: [],
+          heldInspirationIds: [],
+          contextRunning: true,
+        }),
+      ),
+    ).toEqual({ healthy: true });
+  });
+
+  it("stays healthy while proposals are still writing after Context last ran", () => {
     expect(
       assessHealth(
         running({
@@ -93,7 +107,7 @@ describe("assessHealth", () => {
           contextMaxIdleMs: 5000,
         }),
       ),
-    ).toEqual({ healthy: false, reason: "Proposal 一直占满，Context 很久没跑过" });
+    ).toEqual({ healthy: true });
   });
 
   it("flags the same inspiration held twice", () => {

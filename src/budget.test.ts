@@ -9,9 +9,9 @@ describe("parseBudget", () => {
 
 describe("parseArgs", () => {
   it("reads the run command and flags", () => {
-    const args = parseArgs(["run", "--task", "./examples/sort-bench", "--proposals", "3"]);
+    const args = parseArgs(["run", "--task", "./examples/task", "--proposals", "3"]);
     expect(args.get("_")).toBe("run");
-    expect(args.get("task")).toBe("./examples/sort-bench");
+    expect(args.get("task")).toBe("./examples/task");
     expect(args.get("proposals")).toBe("3");
   });
 });

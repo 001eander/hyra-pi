@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ExperienceBank, type ExperienceRecord, type Score } from "./experience-bank.js";
 import { InspirationQueue, type Inspiration } from "./inspiration-queue.js";
+import { DEFAULT_PROPOSAL_REWRITES, needsProposalRewrite } from "./proposal-rewrite.js";
 import { ResourceGates } from "./resource-gates.js";
 
 export type ContextDraft = {
@@ -23,6 +24,7 @@ export type ProposalPort = {
   write(input: {
     inspiration: Inspiration;
     workDir: string;
+    lastError?: string;
   }): Promise<{ solutionDir: string } | { error: string }>;
 };
 
@@ -64,6 +66,7 @@ export type LoopOptions = {
   context: ContextPort;
   proposal: ProposalPort;
   sandbox: SandboxPort;
+  proposalRewrites?: number;
   now?: () => number;
 };
 
@@ -80,7 +83,8 @@ export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
         highWater: opts.highWater,
         maxSolutions: opts.budget.maxSolutions,
         maxMs: opts.budget.maxMs,
-        contextMaxIdleMs: 5_000,
+        proposalRewrites: opts.proposalRewrites ?? DEFAULT_PROPOSAL_REWRITES,
+        contextMaxIdleMs: Number(process.env.HYRA_PI_CONTEXT_IDLE_MS ?? 180_000),
       },
       null,
       2,
@@ -131,56 +135,87 @@ export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
   const runOne = async (insp: Inspiration) => {
     const workDir = path.join(opts.runDir, "workspaces", insp.id);
     await mkdir(workDir, { recursive: true });
-    live.writers.push({ id: insp.id, direction: insp.direction });
-    await persist();
-
+    const maxRewrites = opts.proposalRewrites ?? DEFAULT_PROPOSAL_REWRITES;
+    let lastError: string | undefined;
     let solutionDir = workDir;
-    let writeError: string | undefined;
-    try {
-      const written = await opts.proposal.write({ inspiration: insp, workDir });
-      if ("error" in written) writeError = written.error;
-      else solutionDir = written.solutionDir;
-    } catch (err) {
-      writeError = err instanceof Error ? err.message : String(err);
-    } finally {
-      live.writers = live.writers.filter((row) => row.id !== insp.id);
-      gates.finishProposal();
-      await persist();
-    }
+    let heldProposal = true;
 
-    await gates.acquireSandbox();
-    live.sandboxes.push({ id: insp.id, direction: insp.direction });
-    await persist();
     try {
-      if (writeError) {
-        await bank.commit({
-          inspirationId: insp.id,
-          solutionDir,
-          ok: false,
-          log: writeError,
-          score: null,
-        });
-      } else {
-        const evaluated = await opts.sandbox.evaluate(solutionDir);
-        await bank.commit({
-          inspirationId: insp.id,
-          solutionDir,
-          ok: evaluated.ok,
-          log: evaluated.log,
-          score: evaluated.score,
-        });
+      for (let attempt = 0; attempt <= maxRewrites; attempt += 1) {
+        if (!heldProposal) {
+          await gates.acquireProposal();
+          heldProposal = true;
+        }
+
+        live.writers.push({ id: insp.id, direction: insp.direction });
+        await persist();
+        let writeError: string | undefined;
+        try {
+          const written = await opts.proposal.write({ inspiration: insp, workDir, lastError });
+          if ("error" in written) writeError = written.error;
+          else solutionDir = written.solutionDir;
+        } catch (err) {
+          writeError = err instanceof Error ? err.message : String(err);
+        } finally {
+          live.writers = live.writers.filter((row) => row.id !== insp.id);
+          gates.finishProposal();
+          heldProposal = false;
+          await persist();
+        }
+
+        if (writeError) {
+          lastError = writeError;
+          if (attempt < maxRewrites) continue;
+          await bank.commit({
+            inspirationId: insp.id,
+            solutionDir,
+            ok: false,
+            log: writeError,
+            score: null,
+          });
+          return;
+        }
+
+        await gates.acquireSandbox();
+        live.sandboxes.push({ id: insp.id, direction: insp.direction });
+        await persist();
+        try {
+          const evaluated = await opts.sandbox.evaluate(solutionDir);
+          if (
+            !needsProposalRewrite({ ok: evaluated.ok, score: evaluated.score }) ||
+            attempt === maxRewrites
+          ) {
+            await bank.commit({
+              inspirationId: insp.id,
+              solutionDir,
+              ok: evaluated.ok,
+              log: evaluated.log,
+              score: evaluated.score,
+            });
+            return;
+          }
+          lastError = evaluated.log;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (attempt === maxRewrites) {
+            await bank.commit({
+              inspirationId: insp.id,
+              solutionDir,
+              ok: false,
+              log: message,
+              score: null,
+            });
+            return;
+          }
+          lastError = message;
+        } finally {
+          live.sandboxes = live.sandboxes.filter((row) => row.id !== insp.id);
+          gates.finishSandbox();
+          await persist();
+        }
       }
-    } catch (err) {
-      await bank.commit({
-        inspirationId: insp.id,
-        solutionDir,
-        ok: false,
-        log: err instanceof Error ? err.message : String(err),
-        score: null,
-      });
     } finally {
-      live.sandboxes = live.sandboxes.filter((row) => row.id !== insp.id);
-      gates.finishSandbox();
+      if (heldProposal) gates.finishProposal();
       queue.releaseHold(insp.id);
       await persist();
     }

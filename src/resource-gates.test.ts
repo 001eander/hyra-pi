@@ -39,4 +39,24 @@ describe("ResourceGates", () => {
     expect(gates.contextInFlight()).toBe(false);
     expect(gates.tryStartContext()).toBe(true);
   });
+
+  it("lets a rewrite wait for a proposal slot the same way a sandbox waits", async () => {
+    const gates = new ResourceGates({ maxProposals: 1, maxSandboxes: 1 });
+    expect(gates.tryStartProposal()).toBe(true);
+
+    let acquired = false;
+    const waiting = gates.acquireProposal().then(() => {
+      acquired = true;
+    });
+    await Promise.resolve();
+    expect(acquired).toBe(false);
+
+    gates.finishProposal();
+    await waiting;
+    expect(acquired).toBe(true);
+    expect(gates.proposalsInFlight()).toBe(1);
+
+    gates.finishProposal();
+    expect(gates.proposalsInFlight()).toBe(0);
+  });
 });

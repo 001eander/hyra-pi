@@ -36,18 +36,13 @@ export function assessHealth(snap: HealthSnapshot): HealthReport {
     return { healthy: false, reason: "队列已经满了，Context 还在往里放" };
   }
 
-  if (snap.phase === "running" && snap.waitingCount > 0 && snap.proposalsInFlight < snap.maxProposals) {
-    return { healthy: false, reason: "队列里有活，但没人领" };
-  }
-
   if (
     snap.phase === "running" &&
-    snap.proposalsInFlight >= snap.maxProposals &&
-    !snap.contextRunning &&
-    snap.lastContextAt !== undefined &&
-    snap.now - snap.lastContextAt > snap.contextMaxIdleMs
+    snap.waitingCount > 0 &&
+    snap.proposalsInFlight < snap.maxProposals &&
+    !snap.contextRunning
   ) {
-    return { healthy: false, reason: "Proposal 一直占满，Context 很久没跑过" };
+    return { healthy: false, reason: "队列里有活，但没人领" };
   }
 
   return { healthy: true };

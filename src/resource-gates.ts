@@ -5,6 +5,7 @@ export class ResourceGates {
   private sandboxes = 0;
   private context = false;
   private sandboxWaiters: Array<() => void> = [];
+  private proposalWaiters: Array<() => void> = [];
 
   constructor(opts: { maxProposals: number; maxSandboxes: number }) {
     if (opts.maxProposals < 1 || opts.maxSandboxes < 1) {
@@ -20,8 +21,20 @@ export class ResourceGates {
     return true;
   }
 
+  async acquireProposal(): Promise<void> {
+    if (this.tryStartProposal()) return;
+    await new Promise<void>((resolve) => {
+      this.proposalWaiters.push(resolve);
+    });
+  }
+
   finishProposal(): void {
     if (this.proposals === 0) throw new Error("no proposal slot to finish");
+    const next = this.proposalWaiters.shift();
+    if (next) {
+      next();
+      return;
+    }
     this.proposals -= 1;
   }
 

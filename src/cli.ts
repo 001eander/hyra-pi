@@ -4,6 +4,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { parseArgs, parseBudget } from "./budget.js";
 import { runInnerLoop } from "./inner-loop.js";
+import { parseProposalRewrites } from "./proposal-rewrite.js";
 import { createPiContext, createPiProposal } from "./pi-agents.js";
 import { DEFAULT_CONTEXT_MODEL, DEFAULT_PROPOSAL_MODEL } from "./role-model.js";
 import { createDockerSandbox } from "./sandbox.js";
@@ -21,7 +22,7 @@ async function main(argv: string[]): Promise<void> {
     await statusCommand(args);
     return;
   }
-  console.log(`hyra-pi run --task ./examples/sort-bench --proposals 3 --budget 30m
+  console.log(`hyra-pi run --task <task-dir> --proposals 3 --budget 30m
 hyra-pi status --run <run-dir>`);
 }
 
@@ -34,6 +35,11 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
   const budget = parseBudget(
     typeof args.get("budget") === "string" ? String(args.get("budget")) : "30m",
     typeof args.get("solutions") === "string" ? String(args.get("solutions")) : undefined,
+  );
+  const proposalRewrites = parseProposalRewrites(
+    typeof args.get("rewrites") === "string"
+      ? String(args.get("rewrites"))
+      : process.env.HYRA_PI_PROPOSAL_REWRITES,
   );
   const port = Number(args.get("port") ?? 8787);
   const runsRoot = path.resolve(String(args.get("runs") ?? "runs"));
@@ -65,6 +71,7 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
   });
   console.log(`context ${contextModel}`);
   console.log(`proposal ${proposalModel}`);
+  console.log(`rewrites ${proposalRewrites}`);
 
   const server = await startStatusServer(runDir, port);
   console.log(`status ${server.url}`);
@@ -78,6 +85,7 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
       lowWater: 1,
       highWater: Math.max(3, proposals * 2),
       budget,
+      proposalRewrites,
       context,
       proposal,
       sandbox,

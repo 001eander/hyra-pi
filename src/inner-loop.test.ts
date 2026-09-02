@@ -121,4 +121,68 @@ describe("inner loop", () => {
     expect(result.stopReason).toBe("context-stop");
     expect(result.best?.score?.score).toBe(3);
   });
+
+  it("rewrites the same inspiration after a crash and commits only the final result", async () => {
+    const root = await runDir();
+    const errors: Array<string | undefined> = [];
+    const proposal: ProposalPort = {
+      async write({ workDir, lastError }) {
+        errors.push(lastError);
+        await mkdir(workDir, { recursive: true });
+        await writeFile(path.join(workDir, "solve.sh"), "#!/bin/sh\necho ok\n", "utf8");
+        return { solutionDir: workDir };
+      },
+    };
+
+    const result = await runInnerLoop({
+      runDir: root,
+      maxProposals: 1,
+      maxSandboxes: 1,
+      lowWater: 0,
+      highWater: 2,
+      budget: { maxSolutions: 1 },
+      proposalRewrites: 2,
+      context: scriptedContext([{ directions: ["lgbm"] }]),
+      proposal,
+      sandbox: scriptedSandbox([
+        { ok: false, score: null, log: "TypeError: unexpected keyword argument 'verbose'" },
+        { ok: true, score: 7, log: "score 7" },
+      ]),
+    });
+
+    expect(errors).toEqual([undefined, "TypeError: unexpected keyword argument 'verbose'"]);
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]?.ok).toBe(true);
+    expect(result.best?.score?.score).toBe(7);
+  });
+
+  it("does not rewrite a scored solution just because the score is low", async () => {
+    const root = await runDir();
+    let writes = 0;
+    const proposal: ProposalPort = {
+      async write({ workDir }) {
+        writes += 1;
+        await mkdir(workDir, { recursive: true });
+        await writeFile(path.join(workDir, "solve.sh"), "#!/bin/sh\necho ok\n", "utf8");
+        return { solutionDir: workDir };
+      },
+    };
+
+    const result = await runInnerLoop({
+      runDir: root,
+      maxProposals: 1,
+      maxSandboxes: 1,
+      lowWater: 0,
+      highWater: 2,
+      budget: { maxSolutions: 1 },
+      proposalRewrites: 2,
+      context: scriptedContext([{ directions: ["fallback"] }]),
+      proposal,
+      sandbox: scriptedSandbox([{ ok: true, score: 0.5, log: "constant" }]),
+    });
+
+    expect(writes).toBe(1);
+    expect(result.records).toHaveLength(1);
+    expect(result.best?.score?.score).toBe(0.5);
+  });
 });
