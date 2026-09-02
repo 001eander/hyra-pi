@@ -37,12 +37,14 @@ node dist/cli.js status --run <run-dir>
 | `--budget` | 最长时间，如 `30s` / `30m` / `2h` | `30m` |
 | `--solutions` | 最多评多少份方案 | `8` |
 | `--rewrites` | 同一灵感沙盒崩溃后还能改几次 | `2` |
+| `--write` | 单次 Proposal 写作上限，如 `30s` / `30m` / `2h` | `30m` |
+| `--sandbox` | 单次 Docker 评分上限，如 `30s` / `30m` / `2h` | `30m` |
 | `--port` | 状态页端口 | `8787` |
 | `--runs` | 运行记录目录 | `runs` |
 | `--context-model` | Context 的 `provider/id:思考深度` | `deepseek/deepseek-v4-pro:max` |
 | `--proposal-model` | Proposal 的 `provider/id:思考深度` | `deepseek/deepseek-v4-flash-vision-exp:high` |
 
-沙盒镜像默认是 `debian:bookworm-slim`，可用环境变量 `HYRA_PI_IMAGE` 改。超时用 `HYRA_PI_SANDBOX_MS`（默认 60 秒）。Proposal 只写文件，没有宿主机 bash；写方案超时用 `HYRA_PI_PROPOSAL_MS`（默认 360 秒）。超时前已经写出 `solve.sh` 的方案仍会送去沙盒评分。同一灵感若沙盒崩溃（没写出分数），会把日志还回去改，默认还能改 2 次（`--rewrites` / `HYRA_PI_PROPOSAL_REWRITES`）；经验库只记最后一次。有分数的低分不会重写。
+沙盒镜像默认是 `debian:bookworm-slim`，可用环境变量 `HYRA_PI_IMAGE` 改。单次评分超时默认 30 分钟，用 `--sandbox 30m` 或 `HYRA_PI_SANDBOX_MS` 改；命令行优先。Proposal 可以 bash 检查刚写的文件；写方案超时默认也是 30 分钟，用 `--write 30m` 或 `HYRA_PI_PROPOSAL_MS` 改，命令行优先。超时前已经写出 `solve.sh` 的方案仍会送去沙盒评分。同一灵感若沙盒崩溃（没写出分数），会把日志还回去改，默认还能改 2 次（`--rewrites` / `HYRA_PI_PROPOSAL_REWRITES`）；经验库只记最后一次。有分数的低分不会重写。
 
 Proposal 带官方 Context7（Pi 扩展 `@upstash/context7-pi`，工具是 `resolve-library-id` / `query-docs`，和 Context7 MCP 同一套接口）。写 LightGBM / XGBoost / sklearn 之前会先查现行文档。可选环境变量 `CONTEXT7_API_KEY`（`ctx7sk_...`），没有也能用，限额更低。
 
