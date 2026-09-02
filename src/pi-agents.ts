@@ -19,10 +19,8 @@ function msLeft(deadline: number): number {
   return Math.max(0, deadline - Date.now());
 }
 
-// Proposal writes files for the Docker sandbox. Host bash lets it pip-install,
-// create venvs, or `find /`, which hangs the demo and never produces solve.sh.
 // Context7 is the official Pi port of the Context7 MCP: current library docs only.
-export const PROPOSAL_TOOLS = ["read", "write", "edit", "ls", ...CONTEXT7_TOOLS] as const;
+export const PROPOSAL_TOOLS = ["read", "write", "edit", "ls", "bash", ...CONTEXT7_TOOLS] as const;
 export const CONTEXT_TOOLS = ["read", "grep", "find", "ls", "write"] as const;
 
 export async function createPiContext(opts: {
@@ -115,7 +113,7 @@ export async function createPiProposal(opts: {
                 [
                   `复读 ${workDir} 里每一个文件，把方案修到沙盒能直接跑通。`,
                   "从 solve.sh 走到读入、训练或推断、写出预测；缺的补上，假实现和 TODO 删掉。",
-                  "每一处第三方库调用必须已经对照过文档。只修漏洞，不要换实验主轴。修完再停。",
+                  "用 bash 做语法检查。每一处第三方库调用必须已经对照过文档。只修漏洞，不要换实验主轴。修完再停。",
                 ].join("\n\n"),
               ),
               reviewMs,
