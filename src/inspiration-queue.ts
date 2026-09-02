@@ -16,7 +16,7 @@ export type EnqueueInput = {
 
 export type EnqueueResult =
   | { ok: true; id: string }
-  | { ok: false; reason: "full" };
+  | { ok: false; reason: "full" | "duplicate" };
 
 export class InspirationQueue {
   readonly runDir: string;
@@ -25,6 +25,7 @@ export class InspirationQueue {
   private nextId = 1;
   private waiting: Inspiration[] = [];
   private held = new Map<string, Inspiration>();
+  private seen = new Set<string>();
 
   private constructor(runDir: string, lowWater: number, highWater: number) {
     this.runDir = runDir;
@@ -68,8 +69,14 @@ export class InspirationQueue {
     return [...this.held.values()].map((item) => ({ ...item }));
   }
 
+  takenDirections(): string[] {
+    return [...this.seen];
+  }
+
   async enqueue(input: EnqueueInput): Promise<EnqueueResult> {
     if (this.mustStopProducing()) return { ok: false, reason: "full" };
+    const key = normalizeDirection(input.direction);
+    if (this.seen.has(key)) return { ok: false, reason: "duplicate" };
     const item: Inspiration = {
       id: `insp-${String(this.nextId).padStart(3, "0")}`,
       direction: input.direction,
@@ -77,6 +84,7 @@ export class InspirationQueue {
       ebGeneration: input.ebGeneration,
     };
     this.nextId += 1;
+    this.seen.add(key);
     this.waiting.push(item);
     await this.persist(item, "waiting");
     return { ok: true, id: item.id };
@@ -98,4 +106,8 @@ export class InspirationQueue {
     const file = path.join(this.runDir, "queue", `${item.id}.json`);
     await writeFile(file, JSON.stringify({ ...item, state }, null, 2), "utf8");
   }
+}
+
+function normalizeDirection(direction: string): string {
+  return direction.trim().replace(/\s+/g, " ");
 }

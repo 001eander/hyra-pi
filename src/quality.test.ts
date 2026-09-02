@@ -66,7 +66,7 @@ describe("quality loop", () => {
       async produce({ best }) {
         const current = best?.score?.score ?? 0;
         return {
-          inspirations: [{ direction: "nudge", context: `aim ${current + 1}` }],
+          inspirations: [{ direction: `nudge ${current + 1}`, context: `aim ${current + 1}` }],
         };
       },
     };

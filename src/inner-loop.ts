@@ -17,6 +17,7 @@ export type ContextPort = {
     mustStopProducing: boolean;
     best?: ExperienceRecord;
     records: ExperienceRecord[];
+    takenDirections: string[];
   }): Promise<{ inspirations?: ContextDraft[]; stop?: boolean }>;
 };
 
@@ -255,6 +256,7 @@ export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
             mustStopProducing: queue.mustStopProducing(),
             best: await bank.best(),
             records: await bank.list(),
+            takenDirections: queue.takenDirections(),
           });
           if (out.stop) stopRequested = true;
           let added = 0;

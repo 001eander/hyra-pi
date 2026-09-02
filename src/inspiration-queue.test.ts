@@ -58,6 +58,19 @@ describe("InspirationQueue", () => {
     expect(queue.mustStopProducing()).toBe(false);
   });
 
+  it("refuses a direction that was already queued, even after it is claimed", async () => {
+    const { queue } = await newQueue({ highWater: 4, lowWater: 1 });
+    expect((await queue.enqueue({ direction: "LightGBM 单热基线", context: "a", ebGeneration: 0 })).ok).toBe(
+      true,
+    );
+    await queue.claim();
+    expect(await queue.enqueue({ direction: "  LightGBM 单热基线 ", context: "again", ebGeneration: 1 })).toEqual({
+      ok: false,
+      reason: "duplicate",
+    });
+    expect(queue.takenDirections()).toEqual(["LightGBM 单热基线"]);
+  });
+
   it("does not let two callers hold the same inspiration", async () => {
     const { queue } = await newQueue({ highWater: 4, lowWater: 1 });
     const first = await queue.enqueue({ direction: "one", context: "one", ebGeneration: 1 });

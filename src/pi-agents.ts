@@ -47,6 +47,7 @@ export async function createPiContext(opts: {
           `当前最好：${JSON.stringify(input.best ?? null)}`,
           `全部记录：${JSON.stringify(input.records)}`,
           `队列需要补货：${input.needsMore}。队列已满：${input.mustStopProducing}。`,
+          `已经用过的方向（不要再交）：${JSON.stringify(input.takenDirections)}`,
           "先读各条记录的 logPath、最好方案的 solutionDir（或 best/）和 queue/，再按系统提示做诊断、出实验。",
           `把结果写到 ${outFile}，JSON：{"inspirations":[{"direction":"...","context":"..."}],"stop":false}。只有当前最好已经达到题目过关线才把 stop 设为 true；否则 stop 必须是 false，且 inspirations 不能空。`,
           "写完本轮即停。",
