@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 export type Inspiration = {
@@ -18,6 +18,8 @@ export type EnqueueResult =
   | { ok: true; id: string }
   | { ok: false; reason: "full" | "duplicate" };
 
+type QueueRow = Inspiration & { state?: string };
+
 export class InspirationQueue {
   readonly runDir: string;
   readonly lowWater: number;
@@ -35,13 +37,14 @@ export class InspirationQueue {
 
   static async open(
     runDir: string,
-    opts: { lowWater: number; highWater: number },
+    opts: { lowWater: number; highWater: number; knownIds?: string[] },
   ): Promise<InspirationQueue> {
     if (opts.lowWater < 0 || opts.highWater < 1 || opts.lowWater > opts.highWater) {
       throw new Error("queue marks must satisfy 0 <= lowWater <= highWater");
     }
     const queue = new InspirationQueue(runDir, opts.lowWater, opts.highWater);
     await mkdir(path.join(runDir, "queue"), { recursive: true });
+    await queue.reload(opts.knownIds ?? []);
     return queue;
   }
 
@@ -102,6 +105,46 @@ export class InspirationQueue {
     this.held.delete(id);
   }
 
+  async requeueOrphans(committedIds: Set<string>): Promise<void> {
+    const orphans: Inspiration[] = [];
+    for (const [id, item] of this.held) {
+      if (committedIds.has(id)) continue;
+      this.held.delete(id);
+      orphans.push(item);
+    }
+    orphans.sort((a, b) => inspirationSeq(a.id) - inspirationSeq(b.id));
+    this.waiting = [...orphans, ...this.waiting];
+    for (const item of orphans) await this.persist(item, "waiting");
+  }
+
+  private async reload(knownIds: string[]): Promise<void> {
+    const dir = path.join(this.runDir, "queue");
+    let names: string[] = [];
+    try {
+      names = await readdir(dir);
+    } catch {
+      return;
+    }
+    const rows: QueueRow[] = [];
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      rows.push(JSON.parse(await readFile(path.join(dir, name), "utf8")) as QueueRow);
+    }
+    rows.sort((a, b) => inspirationSeq(a.id) - inspirationSeq(b.id));
+    for (const row of rows) {
+      const item: Inspiration = {
+        id: row.id,
+        direction: row.direction,
+        context: row.context,
+        ebGeneration: row.ebGeneration,
+      };
+      this.seen.add(normalizeDirection(row.direction));
+      if (row.state === "held") this.held.set(item.id, item);
+      else this.waiting.push(item);
+    }
+    this.nextId = Math.max(0, ...[...rows.map((row) => row.id), ...knownIds].map(inspirationSeq)) + 1;
+  }
+
   private async persist(item: Inspiration, state: "waiting" | "held"): Promise<void> {
     const file = path.join(this.runDir, "queue", `${item.id}.json`);
     await writeFile(file, JSON.stringify({ ...item, state }, null, 2), "utf8");
@@ -110,4 +153,9 @@ export class InspirationQueue {
 
 function normalizeDirection(direction: string): string {
   return direction.trim().replace(/\s+/g, " ");
+}
+
+function inspirationSeq(id: string): number {
+  const match = /^insp-(\d+)$/.exec(id);
+  return match ? Number(match[1]) : 0;
 }

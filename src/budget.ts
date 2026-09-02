@@ -23,6 +23,21 @@ export function parseBudget(text: string | undefined, solutions: string | undefi
   return { maxSolutions, maxMs: parseDuration(text, "--budget") };
 }
 
+export function continueBudget(
+  saved: { maxSolutions: number; maxMs?: number },
+  consumedMs: number,
+  extra: { budget?: string; solutions?: string } = {},
+): ParsedBudget {
+  const maxSolutions = extra.solutions ? Number(extra.solutions) : saved.maxSolutions;
+  if (!Number.isFinite(maxSolutions) || maxSolutions < 1) {
+    throw new Error(`invalid --solutions ${extra.solutions}`);
+  }
+  const extraMs = extra.budget ? parseDuration(extra.budget, "--budget") : 0;
+  if (saved.maxMs === undefined && !extra.budget) return { maxSolutions };
+  const remaining = saved.maxMs === undefined ? 0 : Math.max(0, saved.maxMs - consumedMs);
+  return { maxSolutions, maxMs: consumedMs + remaining + extraMs };
+}
+
 export function parseSandboxMs(flag: string | undefined, env: string | undefined): number {
   if (flag) return parseDuration(flag, "--sandbox");
   if (env !== undefined && env !== "") {

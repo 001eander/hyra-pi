@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs, parseBudget, parseProposalMs, parseSandboxMs } from "./budget.js";
+import { continueBudget, parseArgs, parseBudget, parseProposalMs, parseSandboxMs } from "./budget.js";
 
 describe("parseBudget", () => {
   it("reads a 30 minute cap as 1800000 ms", () => {
@@ -23,11 +23,42 @@ describe("parseProposalMs", () => {
   });
 });
 
+describe("continueBudget", () => {
+  it("keeps the saved solution cap and the original clock so leftover time stays leftover", () => {
+    expect(continueBudget({ maxSolutions: 100, maxMs: 3_600_000 }, 1_200_000)).toEqual({
+      maxSolutions: 100,
+      maxMs: 3_600_000,
+    });
+  });
+
+  it("adds --budget onto the remaining clock instead of replacing it", () => {
+    expect(
+      continueBudget({ maxSolutions: 100, maxMs: 3_600_000 }, 1_200_000, { budget: "30m" }),
+    ).toEqual({ maxSolutions: 100, maxMs: 5_400_000 });
+  });
+
+  it("lets --solutions replace the cap and does not default to 8", () => {
+    expect(continueBudget({ maxSolutions: 100, maxMs: 1_000 }, 0, { solutions: "120" })).toEqual({
+      maxSolutions: 120,
+      maxMs: 1_000,
+    });
+  });
+
+  it("omits a clock when the saved run had none and no extra budget is given", () => {
+    expect(continueBudget({ maxSolutions: 50 }, 999)).toEqual({ maxSolutions: 50 });
+  });
+});
+
 describe("parseArgs", () => {
   it("reads the run command and flags", () => {
     const args = parseArgs(["run", "--task", "./examples/task", "--proposals", "3"]);
     expect(args.get("_")).toBe("run");
     expect(args.get("task")).toBe("./examples/task");
     expect(args.get("proposals")).toBe("3");
+  });
+
+  it("reads --run for continuing an existing directory", () => {
+    const args = parseArgs(["run", "--task", "./examples/s6e9", "--run", "runs/old"]);
+    expect(args.get("run")).toBe("runs/old");
   });
 });

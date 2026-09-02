@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { parseArgs, parseBudget, parseProposalMs, parseSandboxMs } from "./budget.js";
+import { continueBudget, parseArgs, parseBudget, parseProposalMs, parseSandboxMs } from "./budget.js";
 import { runInnerLoop } from "./inner-loop.js";
 import { parseProposalRewrites } from "./proposal-rewrite.js";
 import { createPiContext, createPiProposal } from "./pi-agents.js";
@@ -22,7 +22,7 @@ async function main(argv: string[]): Promise<void> {
     await statusCommand(args);
     return;
   }
-  console.log(`hyra-pi run --task <task-dir> --proposals 3 --budget 30m
+  console.log(`hyra-pi run --task <task-dir> --run <run-dir> --proposals 3 --budget 30m
 hyra-pi status --run <run-dir>`);
 }
 
@@ -30,21 +30,41 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
   const taskFlag = args.get("task");
   if (typeof taskFlag !== "string") throw new Error("missing --task");
   const task = await loadTask(path.resolve(taskFlag));
-  const proposals = Number(args.get("proposals") ?? 3);
-  const sandboxes = Number(args.get("sandboxes") ?? 2);
-  const budget = parseBudget(
-    typeof args.get("budget") === "string" ? String(args.get("budget")) : "30m",
-    typeof args.get("solutions") === "string" ? String(args.get("solutions")) : undefined,
-  );
+  const runsRoot = path.resolve(String(args.get("runs") ?? "runs"));
+  const runFlag = args.get("run");
+  const runDir =
+    typeof runFlag === "string"
+      ? path.resolve(runFlag)
+      : path.join(runsRoot, new Date().toISOString().replaceAll(":", "-"));
+  await mkdir(runDir, { recursive: true });
+  const saved = await readJson<{
+    maxProposals?: number;
+    maxSandboxes?: number;
+    maxSolutions: number;
+    maxMs?: number;
+  }>(path.join(runDir, "run.json"));
+  const live = await readJson<{ consumedMs?: number }>(path.join(runDir, "live.json"));
+  const proposals = Number(args.get("proposals") ?? saved?.maxProposals ?? 3);
+  const sandboxes = Number(args.get("sandboxes") ?? saved?.maxSandboxes ?? 2);
+  const budget = saved
+    ? continueBudget(
+        { maxSolutions: saved.maxSolutions, maxMs: saved.maxMs },
+        live?.consumedMs ?? 0,
+        {
+          budget: typeof args.get("budget") === "string" ? String(args.get("budget")) : undefined,
+          solutions: typeof args.get("solutions") === "string" ? String(args.get("solutions")) : undefined,
+        },
+      )
+    : parseBudget(
+        typeof args.get("budget") === "string" ? String(args.get("budget")) : "30m",
+        typeof args.get("solutions") === "string" ? String(args.get("solutions")) : undefined,
+      );
   const proposalRewrites = parseProposalRewrites(
     typeof args.get("rewrites") === "string"
       ? String(args.get("rewrites"))
       : process.env.HYRA_PI_PROPOSAL_REWRITES,
   );
   const port = Number(args.get("port") ?? 8787);
-  const runsRoot = path.resolve(String(args.get("runs") ?? "runs"));
-  const runDir = path.join(runsRoot, new Date().toISOString().replaceAll(":", "-"));
-  await mkdir(runDir, { recursive: true });
 
   const sandboxMs = parseSandboxMs(
     typeof args.get("sandbox") === "string" ? String(args.get("sandbox")) : undefined,
@@ -125,6 +145,14 @@ async function statusCommand(args: Map<string, string | boolean>): Promise<void>
 
 function openBrowser(url: string): void {
   spawn("open", [url], { stdio: "ignore", detached: true }).unref();
+}
+
+async function readJson<T>(file: string): Promise<T | undefined> {
+  try {
+    return JSON.parse(await readFile(file, "utf8")) as T;
+  } catch {
+    return undefined;
+  }
 }
 
 main(process.argv.slice(2)).catch((err) => {

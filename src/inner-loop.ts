@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ExperienceBank, type ExperienceRecord, type Score } from "./experience-bank.js";
 import { InspirationQueue, type Inspiration } from "./inspiration-queue.js";
@@ -47,6 +47,7 @@ export type LiveState = {
   contextRunning: boolean;
   lastContextAt?: number;
   startedAt: number;
+  consumedMs?: number;
 };
 
 export type StopReason = "budget" | "context-stop" | "context-idle";
@@ -73,7 +74,10 @@ export type LoopOptions = {
 
 export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
   const now = opts.now ?? Date.now;
-  const startedAt = now();
+  const sessionStartedAt = now();
+  const previousLive = await readLive(opts.runDir);
+  const consumedBefore = previousLive?.consumedMs ?? 0;
+  const startedAt = previousLive?.startedAt ?? sessionStartedAt;
   await writeFile(
     path.join(opts.runDir, "run.json"),
     JSON.stringify(
@@ -93,10 +97,13 @@ export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
     "utf8",
   );
   const bank = await ExperienceBank.open(opts.runDir);
+  const committed = new Set((await bank.list()).map((row) => row.inspirationId));
   const queue = await InspirationQueue.open(opts.runDir, {
     lowWater: opts.lowWater,
     highWater: opts.highWater,
+    knownIds: [...committed],
   });
+  await queue.requeueOrphans(committed);
   const gates = new ResourceGates({
     maxProposals: opts.maxProposals,
     maxSandboxes: opts.maxSandboxes,
@@ -108,14 +115,19 @@ export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
     sandboxes: [],
     contextRunning: false,
     startedAt,
+    consumedMs: consumedBefore,
   };
+  if (previousLive?.lastContextAt) live.lastContextAt = previousLive.lastContextAt;
 
   const jobs = new Set<Promise<void>>();
   let stopRequested = false;
   let stopReason: StopReason | undefined;
 
+  const consumedNow = () => consumedBefore + Math.max(0, now() - sessionStartedAt);
+
   const persist = async () => {
     live.phase = phaseOf();
+    live.consumedMs = consumedNow();
     await writeFile(path.join(opts.runDir, "live.json"), JSON.stringify(live, null, 2), "utf8");
   };
 
@@ -131,7 +143,7 @@ export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
     opts.budget.maxSolutions - bank.generation() - jobs.size;
 
   const budgetTimeUp = () =>
-    opts.budget.maxMs !== undefined && now() - startedAt >= opts.budget.maxMs;
+    opts.budget.maxMs !== undefined && consumedNow() >= opts.budget.maxMs;
 
   const runOne = async (insp: Inspiration) => {
     const workDir = path.join(opts.runDir, "workspaces", insp.id);
@@ -322,4 +334,12 @@ export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
     records: await bank.list(),
     stopReason: stopReason ?? "budget",
   };
+}
+
+async function readLive(runDir: string): Promise<LiveState | undefined> {
+  try {
+    return JSON.parse(await readFile(path.join(runDir, "live.json"), "utf8")) as LiveState;
+  } catch {
+    return undefined;
+  }
 }

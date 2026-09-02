@@ -19,9 +19,17 @@ npx tsc
 node dist/cli.js run --task <task-dir> --proposals 3 --budget 30m
 ```
 
+同一条 run 接着派活（队列里没出分的灵感会再领，已出分的不重跑）：
+
+```bash
+node dist/cli.js run --task <task-dir> --run <run-dir>
+```
+
+续训时份数上限接着用；`--budget` 加在剩余墙钟上，不是换掉当初的总时长。`--solutions` 才会改份数上限。
+
 跑起来会在本机打开状态页（默认 `http://127.0.0.1:8787`），看板大约每秒刷新：顶上是 Context 和运行状态，中间 Proposal / 沙盒两列（写完的方案会进沙盒），底下是历史结果。页面只能看，不能改循环。
 
-跑完后可以再打开同一页：
+只看不跑：
 
 ```bash
 node dist/cli.js status --run <run-dir>
@@ -34,8 +42,9 @@ node dist/cli.js status --run <run-dir>
 | `--task` | 题目目录 | 必填 |
 | `--proposals` | 同时写方案的人数 | `3` |
 | `--sandboxes` | 同时跑沙盒的个数 | `2` |
-| `--budget` | 最长时间，如 `30s` / `30m` / `2h` | `30m` |
-| `--solutions` | 最多评多少份方案 | `8` |
+| `--run` | 已有 run 目录；续训用这个，不新建 | 新建时间戳目录 |
+| `--budget` | 最长时间；续训时加在剩余墙钟上 | 新跑 `30m` |
+| `--solutions` | 最多评多少份方案；续训时若写出则改上限 | 新跑 `8` |
 | `--rewrites` | 同一灵感沙盒崩溃后还能改几次 | `2` |
 | `--write` | 单次 Proposal 写作上限，如 `30s` / `30m` / `2h` | `30m` |
 | `--sandbox` | 单次 Docker 评分上限，如 `30s` / `30m` / `2h` | `30m` |

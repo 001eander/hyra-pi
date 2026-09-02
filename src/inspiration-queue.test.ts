@@ -88,4 +88,47 @@ describe("InspirationQueue", () => {
     expect(queue.isHeld(first.id)).toBe(true);
     expect(queue.isHeld(second.id)).toBe(true);
   });
+
+  it("reloads waiting, held, seen, and the next id from the run folder", async () => {
+    const { runDir, queue } = await newQueue({ highWater: 6, lowWater: 1 });
+    const claimed = await queue.enqueue({ direction: "was claimed", context: "h", ebGeneration: 1 });
+    expect(claimed.ok).toBe(true);
+    if (!claimed.ok) return;
+    await queue.claim();
+    const waiting = await queue.enqueue({ direction: "keep waiting", context: "w", ebGeneration: 1 });
+    expect(waiting.ok).toBe(true);
+    if (!waiting.ok) return;
+
+    const again = await InspirationQueue.open(runDir, {
+      lowWater: 1,
+      highWater: 6,
+      knownIds: ["insp-009"],
+    });
+    expect(again.peekWaiting().map((row) => row.id)).toEqual([waiting.id]);
+    expect(again.peekHeld().map((row) => row.id)).toEqual([claimed.id]);
+    expect(again.takenDirections()).toEqual(["was claimed", "keep waiting"]);
+    expect(again.isHeld(claimed.id)).toBe(true);
+
+    const next = await again.enqueue({ direction: "brand new", context: "n", ebGeneration: 2 });
+    expect(next).toEqual({ ok: true, id: "insp-010" });
+  });
+
+  it("puts held inspirations without a score back at the front of the waiting list", async () => {
+    const { runDir, queue } = await newQueue({ highWater: 6, lowWater: 1 });
+    const scored = await queue.enqueue({ direction: "already scored", context: "s", ebGeneration: 0 });
+    const orphan = await queue.enqueue({ direction: "orphaned write", context: "o", ebGeneration: 0 });
+    const later = await queue.enqueue({ direction: "still waiting", context: "w", ebGeneration: 0 });
+    expect(scored.ok && orphan.ok && later.ok).toBe(true);
+    if (!scored.ok || !orphan.ok || !later.ok) return;
+    await queue.claim();
+    await queue.claim();
+
+    const again = await InspirationQueue.open(runDir, { lowWater: 1, highWater: 6 });
+    await again.requeueOrphans(new Set([scored.id]));
+
+    expect(again.isHeld(scored.id)).toBe(true);
+    expect(again.isHeld(orphan.id)).toBe(false);
+    expect(again.peekWaiting().map((row) => row.id)).toEqual([orphan.id, later.id]);
+    expect((await again.claim())?.id).toBe(orphan.id);
+  });
 });

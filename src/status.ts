@@ -126,7 +126,8 @@ export async function buildStatus(
     healthy: health.healthy,
     reason: health.reason,
     startedAt: live.startedAt ?? 0,
-    elapsedMs: Math.max(0, now - (live.startedAt ?? now)),
+    elapsedMs:
+      live.consumedMs !== undefined ? Math.max(0, live.consumedMs) : Math.max(0, now - (live.startedAt ?? now)),
     budget: {
       maxSolutions: config.maxSolutions,
       remainingSolutions: Math.max(0, config.maxSolutions - bank.generation()),

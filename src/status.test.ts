@@ -296,6 +296,25 @@ describe("status view", () => {
     expect(view.reason).toBe("队列里有活，但没人领");
   });
 
+  it("uses consumedMs for elapsed time so a paused run does not look like it ran overnight", async () => {
+    const runDir = await seedRun();
+    await writeFile(
+      path.join(runDir, "live.json"),
+      JSON.stringify({
+        phase: "stopped",
+        writers: [],
+        sandboxes: [],
+        contextRunning: false,
+        startedAt: 0,
+        consumedMs: 90_000,
+      }),
+      "utf8",
+    );
+    const view = await buildStatus(runDir, { now: 1_000_000 });
+    expect(view.elapsedMs).toBe(90_000);
+    expect(renderStatusHtml(view)).toContain("1 分 30 秒");
+  });
+
   it("renders a read-only page with the best score and queue direction", async () => {
     const runDir = await seedRun();
     const html = renderStatusHtml(await buildStatus(runDir, { now: 1_200 }));
