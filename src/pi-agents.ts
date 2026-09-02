@@ -13,6 +13,11 @@ import { finishProposalWrite } from "./proposal-result.js";
 import { withTimeout } from "./timeout.js";
 
 const rootDir = fileURLToPath(new URL("..", import.meta.url));
+const PROPOSAL_REVIEW_MIN_MS = 60_000;
+
+function msLeft(deadline: number): number {
+  return Math.max(0, deadline - Date.now());
+}
 
 // Proposal writes files for the Docker sandbox. Host bash lets it pip-install,
 // create venvs, or `find /`, which hangs the demo and never produces solve.sh.
@@ -39,13 +44,14 @@ export async function createPiContext(opts: {
       const outFile = path.join(opts.runDir, "context-out.json");
       await session.prompt(
         [
-          `Task:\n${opts.task}`,
-          `Experience bank version: ${input.generation}`,
-          `Best so far: ${JSON.stringify(input.best ?? null)}`,
-          `Recent records: ${JSON.stringify(input.records.slice(-8))}`,
-          `Queue needs more: ${input.needsMore}. Queue is full: ${input.mustStopProducing}.`,
-          `Write ${outFile} as JSON: {"inspirations":[{"direction":"...","context":"..."}],"stop":false}`,
-          "Then stop.",
+          `题目：\n${opts.task}`,
+          `经验库代数：${input.generation}`,
+          `当前最好：${JSON.stringify(input.best ?? null)}`,
+          `全部记录：${JSON.stringify(input.records)}`,
+          `队列需要补货：${input.needsMore}。队列已满：${input.mustStopProducing}。`,
+          "先读各条记录的 logPath、最好方案的 solutionDir（或 best/）和 queue/，再按系统提示做诊断、出实验。",
+          `把结果写到 ${outFile}，JSON：{"inspirations":[{"direction":"...","context":"..."}],"stop":false}。只有当前最好已经达到题目过关线才把 stop 设为 true；否则 stop 必须是 false，且 inspirations 不能空。`,
+          "写完本轮即停。",
         ].join("\n\n"),
       );
       try {
@@ -61,11 +67,15 @@ export async function createPiContext(opts: {
   };
 }
 
-export async function createPiProposal(opts: { task: string; model?: string }): Promise<ProposalPort> {
+export async function createPiProposal(opts: {
+  task: string;
+  model?: string;
+  timeoutMs: number;
+}): Promise<ProposalPort> {
   const sdk = await loadSdk();
   const system = await readFile(path.join(rootDir, "prompts", "proposal.md"), "utf8");
   const roleModel = parseRoleModel(opts.model ?? DEFAULT_PROPOSAL_MODEL);
-  const timeoutMs = Number(process.env.HYRA_PI_PROPOSAL_MS ?? 360_000);
+  const timeoutMs = opts.timeoutMs;
   return {
     async write({ inspiration, workDir, lastError }) {
       const session = await openSession(sdk, {
@@ -77,20 +87,44 @@ export async function createPiProposal(opts: { task: string; model?: string }): 
       });
       try {
         const parts = [
-          `Task:\n${opts.task}`,
-          `Inspiration ${inspiration.id} (bank v${inspiration.ebGeneration}): ${inspiration.direction}`,
+          `题目：\n${opts.task}`,
+          `灵感 ${inspiration.id}（经验库 v${inspiration.ebGeneration}）：${inspiration.direction}`,
           inspiration.context,
         ];
         if (lastError) {
           parts.push(
-            `The previous attempt crashed. Read the existing files in ${workDir} and fix them. Do not start from scratch.`,
-            `Error:\n${lastError}`,
+            `上一轮崩溃了。先读 ${workDir} 里已有文件，只修这个错误，不要推倒重来。`,
+            `错误：\n${lastError}`,
           );
         }
-        parts.push(`Write solve.sh and any helper files in ${workDir}. Do not score it. Then stop.`);
-        await withTimeout(session.prompt(parts.join("\n\n")), timeoutMs, "proposal write");
-        return finishProposalWrite(workDir);
-      } catch (err) {
+        parts.push(
+          `在 ${workDir} 写出能在沙盒里直接跑通的完整流水线：solve.sh 必须真正启动读数据、训练或推断、写出题目要求的预测文件。按灵感规格改。没有查到的库参数不要写。自己不要评分。写通本轮即停。`,
+        );
+        const deadline = Date.now() + timeoutMs;
+        let err: unknown;
+        try {
+          await withTimeout(session.prompt(parts.join("\n\n")), msLeft(deadline), "proposal write");
+        } catch (caught) {
+          err = caught;
+        }
+        const reviewMs = msLeft(deadline);
+        if (reviewMs >= PROPOSAL_REVIEW_MIN_MS) {
+          try {
+            await withTimeout(
+              session.prompt(
+                [
+                  `复读 ${workDir} 里每一个文件，把方案修到沙盒能直接跑通。`,
+                  "从 solve.sh 走到读入、训练或推断、写出预测；缺的补上，假实现和 TODO 删掉。",
+                  "每一处第三方库调用必须已经对照过文档。只修漏洞，不要换实验主轴。修完再停。",
+                ].join("\n\n"),
+              ),
+              reviewMs,
+              "proposal review",
+            );
+          } catch (caught) {
+            err = err ?? caught;
+          }
+        }
         return finishProposalWrite(workDir, err);
       } finally {
         session.dispose();

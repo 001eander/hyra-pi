@@ -2,7 +2,7 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { parseArgs, parseBudget } from "./budget.js";
+import { parseArgs, parseBudget, parseProposalMs, parseSandboxMs } from "./budget.js";
 import { runInnerLoop } from "./inner-loop.js";
 import { parseProposalRewrites } from "./proposal-rewrite.js";
 import { createPiContext, createPiProposal } from "./pi-agents.js";
@@ -46,11 +46,19 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
   const runDir = path.join(runsRoot, new Date().toISOString().replaceAll(":", "-"));
   await mkdir(runDir, { recursive: true });
 
+  const sandboxMs = parseSandboxMs(
+    typeof args.get("sandbox") === "string" ? String(args.get("sandbox")) : undefined,
+    process.env.HYRA_PI_SANDBOX_MS,
+  );
+  const proposalMs = parseProposalMs(
+    typeof args.get("write") === "string" ? String(args.get("write")) : undefined,
+    process.env.HYRA_PI_PROPOSAL_MS,
+  );
   const image = process.env.HYRA_PI_IMAGE ?? "debian:bookworm-slim";
   const sandbox = createDockerSandbox({
     taskDir: task.dir,
     image,
-    timeoutMs: Number(process.env.HYRA_PI_SANDBOX_MS ?? 60_000),
+    timeoutMs: sandboxMs,
   });
   const contextModel =
     typeof args.get("context-model") === "string"
@@ -68,10 +76,13 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
   const proposal = await createPiProposal({
     task: task.description,
     model: proposalModel,
+    timeoutMs: proposalMs,
   });
   console.log(`context ${contextModel}`);
   console.log(`proposal ${proposalModel}`);
   console.log(`rewrites ${proposalRewrites}`);
+  console.log(`write ${proposalMs}ms`);
+  console.log(`sandbox ${sandboxMs}ms`);
 
   const server = await startStatusServer(runDir, port);
   console.log(`status ${server.url}`);
