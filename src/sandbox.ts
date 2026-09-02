@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
-import { cp, mkdtemp, readFile } from "node:fs/promises";
+import { appendFile, cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { SandboxPort } from "./inner-loop.js";
 
+export type LogStream = "stdout" | "stderr";
+
 export type DockerRun = (
   args: string[],
-  opts: { workDir: string; timeoutMs: number },
+  opts: { workDir: string; timeoutMs: number; onChunk?: (chunk: string, stream?: LogStream) => void },
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export function createDockerSandbox(opts: {
@@ -22,6 +24,16 @@ export function createDockerSandbox(opts: {
       await cp(solutionDir, path.join(workDir, "solution"), { recursive: true });
       await cp(opts.taskDir, path.join(workDir, "task"), { recursive: true });
       await cp(path.join(opts.taskDir, "eval.sh"), path.join(workDir, "eval.sh"));
+
+      const evalLog = path.join(solutionDir, "eval.log");
+      const evalOut = path.join(solutionDir, "eval.stdout");
+      const evalErr = path.join(solutionDir, "eval.stderr");
+      let streamed = false;
+      const onChunk = (chunk: string, stream: LogStream = "stdout") => {
+        streamed = true;
+        void appendFile(evalLog, chunk, "utf8");
+        void appendFile(stream === "stderr" ? evalErr : evalOut, chunk, "utf8");
+      };
 
       let ran;
       try {
@@ -40,20 +52,31 @@ export function createDockerSandbox(opts: {
             "-lc",
             "bash /work/eval.sh /work/solution",
           ],
-          { workDir, timeoutMs: opts.timeoutMs },
+          { workDir, timeoutMs: opts.timeoutMs, onChunk },
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        const log = message.includes("Docker daemon")
+          ? `${message}\n请先启动 Docker`
+          : message;
+        if (!streamed) {
+          await writeFile(evalLog, log, "utf8");
+          await writeFile(evalOut, "", "utf8");
+          await writeFile(evalErr, log, "utf8");
+        }
         return {
           ok: false,
           score: null,
-          log: message.includes("Docker daemon")
-            ? `${message}\n请先启动 Docker`
-            : message,
+          log,
         };
       }
 
       const log = `${ran.stdout}${ran.stderr}`;
+      if (!streamed) {
+        await writeFile(evalLog, log, "utf8");
+        await writeFile(evalOut, ran.stdout, "utf8");
+        await writeFile(evalErr, ran.stderr, "utf8");
+      }
       if (ran.code !== 0) {
         return { ok: false, score: null, log };
       }
@@ -82,17 +105,21 @@ export function createDockerSandbox(opts: {
 
 function runDocker(
   args: string[],
-  opts: { workDir: string; timeoutMs: number },
+  opts: { workDir: string; timeoutMs: number; onChunk?: (chunk: string, stream?: LogStream) => void },
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
+      const text = String(chunk);
+      stdout += text;
+      opts.onChunk?.(text, "stdout");
     });
     child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
+      const text = String(chunk);
+      stderr += text;
+      opts.onChunk?.(text, "stderr");
     });
     const timer = setTimeout(() => {
       child.kill("SIGKILL");

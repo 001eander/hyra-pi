@@ -8,6 +8,7 @@ import {
   parseRoleModel,
   type RoleModel,
 } from "./role-model.js";
+import { ActivitySink } from "./activity.js";
 import { CONTEXT7_TOOLS, context7PiRoot } from "./context7-pi.js";
 import { finishProposalWrite } from "./proposal-result.js";
 import { withTimeout } from "./timeout.js";
@@ -40,27 +41,35 @@ export async function createPiContext(opts: {
   return {
     async produce(input) {
       const outFile = path.join(opts.runDir, "context-out.json");
-      await session.prompt(
-        [
-          `题目：\n${opts.task}`,
-          `经验库代数：${input.generation}`,
-          `当前最好：${JSON.stringify(input.best ?? null)}`,
-          `全部记录：${JSON.stringify(input.records)}`,
-          `队列需要补货：${input.needsMore}。队列已满：${input.mustStopProducing}。`,
-          `已经用过的方向（不要再交）：${JSON.stringify(input.takenDirections)}`,
-          "先读各条记录的 logPath、最好方案的 solutionDir（或 best/）和 queue/，再按系统提示做诊断、出实验。",
-          `把结果写到 ${outFile}，JSON：{"inspirations":[{"direction":"...","context":"..."}],"stop":false}。只有当前最好已经达到题目过关线才把 stop 设为 true；否则 stop 必须是 false，且 inspirations 不能空。`,
-          "写完本轮即停。",
-        ].join("\n\n"),
+      const stopWatch = watchSession(
+        session,
+        new ActivitySink({ runDir: opts.runDir, actor: "context", id: "context" }),
       );
       try {
-        const raw = JSON.parse(await readFile(outFile, "utf8")) as {
-          inspirations?: Array<{ direction: string; context: string }>;
-          stop?: boolean;
-        };
-        return { inspirations: raw.inspirations ?? [], stop: raw.stop };
-      } catch {
-        return { inspirations: [], stop: false };
+        await session.prompt(
+          [
+            `题目：\n${opts.task}`,
+            `经验库代数：${input.generation}`,
+            `当前最好：${JSON.stringify(input.best ?? null)}`,
+            `全部记录：${JSON.stringify(input.records)}`,
+            `队列需要补货：${input.needsMore}。队列已满：${input.mustStopProducing}。`,
+            `已经用过的方向（不要再交）：${JSON.stringify(input.takenDirections)}`,
+            "先读各条记录的 logPath、最好方案的 solutionDir（或 best/）和 queue/，再按系统提示做诊断、出实验。",
+            `把结果写到 ${outFile}，JSON：{"inspirations":[{"direction":"...","context":"..."}],"stop":false}。只有当前最好已经达到题目过关线才把 stop 设为 true；否则 stop 必须是 false，且 inspirations 不能空。`,
+            "写完本轮即停。",
+          ].join("\n\n"),
+        );
+        try {
+          const raw = JSON.parse(await readFile(outFile, "utf8")) as {
+            inspirations?: Array<{ direction: string; context: string }>;
+            stop?: boolean;
+          };
+          return { inspirations: raw.inspirations ?? [], stop: raw.stop };
+        } catch {
+          return { inspirations: [], stop: false };
+        }
+      } finally {
+        await stopWatch();
       }
     },
   };
@@ -70,6 +79,7 @@ export async function createPiProposal(opts: {
   task: string;
   model?: string;
   timeoutMs: number;
+  runDir: string;
 }): Promise<ProposalPort> {
   const sdk = await loadSdk();
   const system = await readFile(path.join(rootDir, "prompts", "proposal.md"), "utf8");
@@ -84,6 +94,10 @@ export async function createPiProposal(opts: {
         roleModel,
         context7: true,
       });
+      const stopWatch = watchSession(
+        session,
+        new ActivitySink({ runDir: opts.runDir, actor: "proposal", id: inspiration.id }),
+      );
       try {
         const parts = [
           `题目：\n${opts.task}`,
@@ -126,6 +140,7 @@ export async function createPiProposal(opts: {
         }
         return finishProposalWrite(workDir, err);
       } finally {
+        await stopWatch();
         session.dispose();
       }
     },
@@ -166,6 +181,17 @@ async function openSession(
     thinkingLevel: opts.roleModel.thinkingLevel,
   });
   return created.session;
+}
+
+function watchSession(
+  session: { subscribe: (listener: (event: unknown) => void) => () => void },
+  sink: ActivitySink,
+): () => Promise<void> {
+  const unsub = session.subscribe((event) => sink.handle(event));
+  return async () => {
+    await sink.flush();
+    unsub();
+  };
 }
 
 async function findModel(modelRuntime: Awaited<ReturnType<Sdk["ModelRuntime"]["create"]>>, spec: RoleModel) {

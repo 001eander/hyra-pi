@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { buildStatus, renderStatusHtml } from "./status.js";
+import { buildStatus, renderStatusHtml, renderStatusPanel } from "./status.js";
 
 export type StatusServer = {
   url: string;
@@ -13,6 +13,11 @@ export async function startStatusServer(runDir: string, port = 8787): Promise<St
       if (req.url === "/api/status") {
         res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
         res.end(JSON.stringify(view));
+        return;
+      }
+      if (req.url === "/panel") {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(renderStatusPanel(view));
         return;
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });

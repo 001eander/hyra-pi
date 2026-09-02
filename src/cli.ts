@@ -77,6 +77,7 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
     task: task.description,
     model: proposalModel,
     timeoutMs: proposalMs,
+    runDir,
   });
   console.log(`context ${contextModel}`);
   console.log(`proposal ${proposalModel}`);

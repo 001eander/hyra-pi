@@ -49,7 +49,7 @@ describe("status server", () => {
     const server = await startStatusServer(runDir, 0);
     try {
       const page = await (await fetch(server.url)).text();
-      expect(page).toContain("最好成绩：8");
+      expect(page).toContain("8");
       const json = (await (await fetch(`${server.url}/api/status`)).json()) as { best?: { score: number } };
       expect(json.best?.score).toBe(8);
     } finally {

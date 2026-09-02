@@ -19,7 +19,7 @@ npx tsc
 node dist/cli.js run --task <task-dir> --proposals 3 --budget 30m
 ```
 
-跑起来会在本机打开状态页（默认 `http://127.0.0.1:8787`），大约每秒刷新：阶段、是否健康、队列、谁在写代码、谁在沙盒里、当前最好成绩、最近记录。页面只能看，不能改循环。
+跑起来会在本机打开状态页（默认 `http://127.0.0.1:8787`），看板大约每秒刷新：顶上是 Context 和运行状态，中间 Proposal / 沙盒两列（写完的方案会进沙盒），底下是历史结果。页面只能看，不能改循环。
 
 跑完后可以再打开同一页：
 
@@ -70,6 +70,8 @@ run/<id>/
   workspaces/proposal-<n>/    # 某个 Proposal 的工作目录
   best/                       # 到目前最好的方案
   live.json                   # 状态页读的现场快照
+  activity/<id>.jsonl         # Context / Proposal 的思考和工具
+  workspaces/<id>/eval.log    # 沙盒正在打出的日志
   run.json                    # 这次的名额和预算
 ```
 
