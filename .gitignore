@@ -4,3 +4,7 @@ runs/
 *.log
 .DS_Store
 .env
+.cache/
+docker/
+examples/
+scripts/
