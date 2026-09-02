@@ -8,8 +8,17 @@ import {
   parseRoleModel,
   type RoleModel,
 } from "./role-model.js";
+import { CONTEXT7_TOOLS, context7PiRoot } from "./context7-pi.js";
+import { finishProposalWrite } from "./proposal-result.js";
+import { withTimeout } from "./timeout.js";
 
 const rootDir = fileURLToPath(new URL("..", import.meta.url));
+
+// Proposal writes files for the Docker sandbox. Host bash lets it pip-install,
+// create venvs, or `find /`, which hangs the demo and never produces solve.sh.
+// Context7 is the official Pi port of the Context7 MCP: current library docs only.
+export const PROPOSAL_TOOLS = ["read", "write", "edit", "ls", ...CONTEXT7_TOOLS] as const;
+export const CONTEXT_TOOLS = ["read", "grep", "find", "ls", "write"] as const;
 
 export async function createPiContext(opts: {
   runDir: string;
@@ -21,7 +30,7 @@ export async function createPiContext(opts: {
   const session = await openSession(sdk, {
     cwd: opts.runDir,
     system,
-    tools: ["read", "grep", "find", "ls", "write"],
+    tools: [...CONTEXT_TOOLS],
     roleModel: parseRoleModel(opts.model ?? DEFAULT_CONTEXT_MODEL),
   });
 
@@ -56,26 +65,33 @@ export async function createPiProposal(opts: { task: string; model?: string }): 
   const sdk = await loadSdk();
   const system = await readFile(path.join(rootDir, "prompts", "proposal.md"), "utf8");
   const roleModel = parseRoleModel(opts.model ?? DEFAULT_PROPOSAL_MODEL);
+  const timeoutMs = Number(process.env.HYRA_PI_PROPOSAL_MS ?? 360_000);
   return {
-    async write({ inspiration, workDir }) {
+    async write({ inspiration, workDir, lastError }) {
       const session = await openSession(sdk, {
         cwd: workDir,
         system,
-        tools: ["read", "write", "edit", "bash", "ls"],
+        tools: [...PROPOSAL_TOOLS],
         roleModel,
+        context7: true,
       });
       try {
-        await session.prompt(
-          [
-            `Task:\n${opts.task}`,
-            `Inspiration ${inspiration.id} (bank v${inspiration.ebGeneration}): ${inspiration.direction}`,
-            inspiration.context,
-            `Write solve.sh in ${workDir}. Do not score it. Then stop.`,
-          ].join("\n\n"),
-        );
-        return { solutionDir: workDir };
+        const parts = [
+          `Task:\n${opts.task}`,
+          `Inspiration ${inspiration.id} (bank v${inspiration.ebGeneration}): ${inspiration.direction}`,
+          inspiration.context,
+        ];
+        if (lastError) {
+          parts.push(
+            `The previous attempt crashed. Read the existing files in ${workDir} and fix them. Do not start from scratch.`,
+            `Error:\n${lastError}`,
+          );
+        }
+        parts.push(`Write solve.sh and any helper files in ${workDir}. Do not score it. Then stop.`);
+        await withTimeout(session.prompt(parts.join("\n\n")), timeoutMs, "proposal write");
+        return finishProposalWrite(workDir);
       } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
+        return finishProposalWrite(workDir, err);
       } finally {
         session.dispose();
       }
@@ -95,13 +111,14 @@ async function loadSdk(): Promise<Sdk> {
 
 async function openSession(
   sdk: Sdk,
-  opts: { cwd: string; system: string; tools: string[]; roleModel: RoleModel },
+  opts: { cwd: string; system: string; tools: string[]; roleModel: RoleModel; context7?: boolean },
 ) {
   const loader = new sdk.DefaultResourceLoader({
     cwd: opts.cwd,
     agentDir: sdk.getAgentDir(),
     systemPromptOverride: () => opts.system,
     appendSystemPromptOverride: () => [],
+    additionalExtensionPaths: opts.context7 ? [context7PiRoot()] : [],
   });
   await loader.reload();
   const modelRuntime = await sdk.ModelRuntime.create();
