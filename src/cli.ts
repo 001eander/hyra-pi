@@ -22,9 +22,17 @@ async function main(argv: string[]): Promise<void> {
     await statusCommand(args);
     return;
   }
+  if (command === "version" || args.get("version") === true) {
+    const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
+      version: string;
+    };
+    console.log(pkg.version);
+    return;
+  }
   console.log(`hyra-pi run --task <task-dir> --run <run-dir> --proposals 3 --budget 30m
 hyra-pi run --task <task-dir> --no-limits
-hyra-pi status --run <run-dir>`);
+hyra-pi status --run <run-dir>
+hyra-pi version`);
 }
 
 async function runCommand(args: Map<string, string | boolean>): Promise<void> {

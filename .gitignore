@@ -2,6 +2,7 @@ node_modules/
 dist/
 runs/
 *.log
+*.tmp
 .DS_Store
 .env
 .cache/

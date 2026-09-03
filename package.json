@@ -6,16 +6,28 @@
   "bin": {
     "hyra-pi": "./dist/cli.js"
   },
+  "files": [
+    "dist",
+    "prompts"
+  ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "tsc",
+    "prepare": "tsc",
+    "prepublishOnly": "npm test && tsc",
     "start": "node dist/cli.js",
     "hyra-pi": "node dist/cli.js"
   },
   "engines": {
     "node": ">=20"
   },
+  "keywords": [
+    "hyra",
+    "pi",
+    "coding-agent",
+    "llm"
+  ],
   "license": "MIT",
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.84.4",
