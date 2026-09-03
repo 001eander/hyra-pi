@@ -78,7 +78,7 @@ export async function createPiContext(opts: {
 export async function createPiProposal(opts: {
   task: string;
   model?: string;
-  timeoutMs: number;
+  timeoutMs?: number;
   runDir: string;
 }): Promise<ProposalPort> {
   const sdk = await loadSdk();
@@ -113,15 +113,19 @@ export async function createPiProposal(opts: {
         parts.push(
           `在 ${workDir} 写出能在沙盒里直接跑通的完整流水线：solve.sh 必须真正启动读数据、训练或推断、写出题目要求的预测文件。按灵感规格改。没有查到的库参数不要写。自己不要评分。写通本轮即停。`,
         );
-        const deadline = Date.now() + timeoutMs;
+        const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
         let err: unknown;
         try {
-          await withTimeout(session.prompt(parts.join("\n\n")), msLeft(deadline), "proposal write");
+          await withTimeout(
+            session.prompt(parts.join("\n\n")),
+            deadline === undefined ? undefined : msLeft(deadline),
+            "proposal write",
+          );
         } catch (caught) {
           err = caught;
         }
-        const reviewMs = msLeft(deadline);
-        if (reviewMs >= PROPOSAL_REVIEW_MIN_MS) {
+        const reviewMs = deadline === undefined ? undefined : msLeft(deadline);
+        if (reviewMs === undefined || reviewMs >= PROPOSAL_REVIEW_MIN_MS) {
           try {
             await withTimeout(
               session.prompt(

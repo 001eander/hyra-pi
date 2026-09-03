@@ -1,5 +1,5 @@
 export type ParsedBudget = {
-  maxSolutions: number;
+  maxSolutions?: number;
   maxMs?: number;
 };
 
@@ -14,32 +14,50 @@ export function parseDuration(text: string, flag: string): number {
   return unit === "ms" ? n : unit === "s" ? n * 1000 : unit === "m" ? n * 60_000 : n * 3_600_000;
 }
 
-export function parseBudget(text: string | undefined, solutions: string | undefined): ParsedBudget {
-  const maxSolutions = solutions ? Number(solutions) : 8;
-  if (!Number.isFinite(maxSolutions) || maxSolutions < 1) {
+export function parseBudget(
+  text: string | undefined,
+  solutions: string | undefined,
+  opts: { unlimited?: boolean } = {},
+): ParsedBudget {
+  const maxSolutions = solutions ? Number(solutions) : opts.unlimited ? undefined : 8;
+  if (maxSolutions !== undefined && (!Number.isFinite(maxSolutions) || maxSolutions < 1)) {
     throw new Error(`invalid --solutions ${solutions}`);
   }
-  if (!text) return { maxSolutions };
-  return { maxSolutions, maxMs: parseDuration(text, "--budget") };
+  return budgetOf(maxSolutions, text ? parseDuration(text, "--budget") : undefined);
 }
 
 export function continueBudget(
-  saved: { maxSolutions: number; maxMs?: number },
+  saved: { maxSolutions?: number; maxMs?: number },
   consumedMs: number,
-  extra: { budget?: string; solutions?: string } = {},
+  extra: { budget?: string; solutions?: string; unlimited?: boolean } = {},
 ): ParsedBudget {
+  if (extra.unlimited) {
+    return parseBudget(extra.budget, extra.solutions, { unlimited: true });
+  }
   const maxSolutions = extra.solutions ? Number(extra.solutions) : saved.maxSolutions;
-  if (!Number.isFinite(maxSolutions) || maxSolutions < 1) {
+  if (maxSolutions !== undefined && (!Number.isFinite(maxSolutions) || maxSolutions < 1)) {
     throw new Error(`invalid --solutions ${extra.solutions}`);
   }
   const extraMs = extra.budget ? parseDuration(extra.budget, "--budget") : 0;
-  if (saved.maxMs === undefined && !extra.budget) return { maxSolutions };
+  if (saved.maxMs === undefined && !extra.budget) return budgetOf(maxSolutions);
   const remaining = saved.maxMs === undefined ? 0 : Math.max(0, saved.maxMs - consumedMs);
-  return { maxSolutions, maxMs: consumedMs + remaining + extraMs };
+  return budgetOf(maxSolutions, consumedMs + remaining + extraMs);
 }
 
-export function parseSandboxMs(flag: string | undefined, env: string | undefined): number {
+function budgetOf(maxSolutions?: number, maxMs?: number): ParsedBudget {
+  const out: ParsedBudget = {};
+  if (maxSolutions !== undefined) out.maxSolutions = maxSolutions;
+  if (maxMs !== undefined) out.maxMs = maxMs;
+  return out;
+}
+
+export function parseSandboxMs(
+  flag: string | undefined,
+  env: string | undefined,
+  opts: { unlimited?: boolean } = {},
+): number | undefined {
   if (flag) return parseDuration(flag, "--sandbox");
+  if (opts.unlimited) return undefined;
   if (env !== undefined && env !== "") {
     const n = Number(env);
     if (!Number.isFinite(n) || n < 1) throw new Error(`invalid HYRA_PI_SANDBOX_MS ${env}`);
@@ -48,8 +66,13 @@ export function parseSandboxMs(flag: string | undefined, env: string | undefined
   return DEFAULT_SANDBOX_MS;
 }
 
-export function parseProposalMs(flag: string | undefined, env: string | undefined): number {
+export function parseProposalMs(
+  flag: string | undefined,
+  env: string | undefined,
+  opts: { unlimited?: boolean } = {},
+): number | undefined {
   if (flag) return parseDuration(flag, "--write");
+  if (opts.unlimited) return undefined;
   if (env !== undefined && env !== "") {
     const n = Number(env);
     if (!Number.isFinite(n) || n < 1) throw new Error(`invalid HYRA_PI_PROPOSAL_MS ${env}`);

@@ -23,6 +23,7 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
   console.log(`hyra-pi run --task <task-dir> --run <run-dir> --proposals 3 --budget 30m
+hyra-pi run --task <task-dir> --no-limits
 hyra-pi status --run <run-dir>`);
 }
 
@@ -40,10 +41,11 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
   const saved = await readJson<{
     maxProposals?: number;
     maxSandboxes?: number;
-    maxSolutions: number;
+    maxSolutions?: number;
     maxMs?: number;
   }>(path.join(runDir, "run.json"));
   const live = await readJson<{ consumedMs?: number }>(path.join(runDir, "live.json"));
+  const noLimits = args.get("no-limits") === true;
   const proposals = Number(args.get("proposals") ?? saved?.maxProposals ?? 3);
   const sandboxes = Number(args.get("sandboxes") ?? saved?.maxSandboxes ?? 2);
   const budget = saved
@@ -53,11 +55,17 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
         {
           budget: typeof args.get("budget") === "string" ? String(args.get("budget")) : undefined,
           solutions: typeof args.get("solutions") === "string" ? String(args.get("solutions")) : undefined,
+          unlimited: noLimits,
         },
       )
     : parseBudget(
-        typeof args.get("budget") === "string" ? String(args.get("budget")) : "30m",
+        typeof args.get("budget") === "string"
+          ? String(args.get("budget"))
+          : noLimits
+            ? undefined
+            : "30m",
         typeof args.get("solutions") === "string" ? String(args.get("solutions")) : undefined,
+        { unlimited: noLimits },
       );
   const proposalRewrites = parseProposalRewrites(
     typeof args.get("rewrites") === "string"
@@ -69,10 +77,12 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
   const sandboxMs = parseSandboxMs(
     typeof args.get("sandbox") === "string" ? String(args.get("sandbox")) : undefined,
     process.env.HYRA_PI_SANDBOX_MS,
+    { unlimited: noLimits },
   );
   const proposalMs = parseProposalMs(
     typeof args.get("write") === "string" ? String(args.get("write")) : undefined,
     process.env.HYRA_PI_PROPOSAL_MS,
+    { unlimited: noLimits },
   );
   const image = process.env.HYRA_PI_IMAGE ?? "debian:bookworm-slim";
   const sandbox = createDockerSandbox({
@@ -102,8 +112,9 @@ async function runCommand(args: Map<string, string | boolean>): Promise<void> {
   console.log(`context ${contextModel}`);
   console.log(`proposal ${proposalModel}`);
   console.log(`rewrites ${proposalRewrites}`);
-  console.log(`write ${proposalMs}ms`);
-  console.log(`sandbox ${sandboxMs}ms`);
+  console.log(`write ${proposalMs === undefined ? "unlimited" : `${proposalMs}ms`}`);
+  console.log(`sandbox ${sandboxMs === undefined ? "unlimited" : `${sandboxMs}ms`}`);
+  if (noLimits) console.log("limits off");
 
   const server = await startStatusServer(runDir, port);
   console.log(`status ${server.url}`);

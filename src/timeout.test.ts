@@ -12,4 +12,8 @@ describe("withTimeout", () => {
       "proposal write timed out after 20ms",
     );
   });
+
+  it("does not impose a deadline when the timeout is omitted", async () => {
+    await expect(withTimeout(Promise.resolve(3), undefined, "proposal write")).resolves.toBe(3);
+  });
 });

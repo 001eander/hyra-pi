@@ -8,13 +8,13 @@ export type LogStream = "stdout" | "stderr";
 
 export type DockerRun = (
   args: string[],
-  opts: { workDir: string; timeoutMs: number; onChunk?: (chunk: string, stream?: LogStream) => void },
+  opts: { workDir: string; timeoutMs?: number; onChunk?: (chunk: string, stream?: LogStream) => void },
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 export function createDockerSandbox(opts: {
   taskDir: string;
   image: string;
-  timeoutMs: number;
+  timeoutMs?: number;
   docker?: DockerRun;
 }): SandboxPort {
   const docker = opts.docker ?? runDocker;
@@ -105,7 +105,7 @@ export function createDockerSandbox(opts: {
 
 function runDocker(
   args: string[],
-  opts: { workDir: string; timeoutMs: number; onChunk?: (chunk: string, stream?: LogStream) => void },
+  opts: { workDir: string; timeoutMs?: number; onChunk?: (chunk: string, stream?: LogStream) => void },
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -121,16 +121,19 @@ function runDocker(
       stderr += text;
       opts.onChunk?.(text, "stderr");
     });
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error(`sandbox timed out after ${opts.timeoutMs}ms`));
-    }, opts.timeoutMs);
+    const timer =
+      opts.timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            child.kill("SIGKILL");
+            reject(new Error(`sandbox timed out after ${opts.timeoutMs}ms`));
+          }, opts.timeoutMs);
     child.on("error", (err) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       reject(err);
     });
     child.on("close", (code) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });

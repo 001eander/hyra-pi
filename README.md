@@ -25,7 +25,7 @@ node dist/cli.js run --task <task-dir> --proposals 3 --budget 30m
 node dist/cli.js run --task <task-dir> --run <run-dir>
 ```
 
-续训时份数上限接着用；`--budget` 加在剩余墙钟上，不是换掉当初的总时长。`--solutions` 才会改份数上限。
+续训时份数上限接着用；`--budget` 加在剩余墙钟上，不是换掉当初的总时长。`--solutions` 才会改份数上限。`--no-limits` 会拿掉时间、份数、写作和沙盒上限，只等 Context 停或 Ctrl+C；再写 `--budget` / `--solutions` / `--write` / `--sandbox` 仍生效。
 
 跑起来会在本机打开状态页（默认 `http://127.0.0.1:8787`），看板大约每秒刷新：顶上是 Context 和运行状态，中间 Proposal / 沙盒两列（写完的方案会进沙盒），底下是历史结果。页面只能看，不能改循环。
 
@@ -43,6 +43,7 @@ node dist/cli.js status --run <run-dir>
 | `--proposals` | 同时写方案的人数 | `3` |
 | `--sandboxes` | 同时跑沙盒的个数 | `2` |
 | `--run` | 已有 run 目录；续训用这个，不新建 | 新建时间戳目录 |
+| `--no-limits` | 去掉时间、份数、写作和沙盒上限 | 关 |
 | `--budget` | 最长时间；续训时加在剩余墙钟上 | 新跑 `30m` |
 | `--solutions` | 最多评多少份方案；续训时若写出则改上限 | 新跑 `8` |
 | `--rewrites` | 同一灵感沙盒崩溃后还能改几次 | `2` |

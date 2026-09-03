@@ -52,10 +52,15 @@ export async function readActivity(runDir: string, id: string, limit = 80): Prom
   } catch {
     return [];
   }
-  const rows = text
-    .split("\n")
-    .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as ActivityEvent);
+  const rows: ActivityEvent[] = [];
+  for (const line of text.split("\n")) {
+    if (!line.length) continue;
+    try {
+      rows.push(JSON.parse(line) as ActivityEvent);
+    } catch {
+      continue;
+    }
+  }
   return rows.length <= limit ? rows : rows.slice(-limit);
 }
 

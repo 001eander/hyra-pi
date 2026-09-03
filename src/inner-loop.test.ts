@@ -256,6 +256,44 @@ describe("inner loop", () => {
     expect(result.records).toHaveLength(1);
     expect(result.stopReason === "budget" || result.stopReason === "context-stop").toBe(true);
   });
+
+  it("keeps dispatching after eight scored solutions when the budget has no caps", async () => {
+    const root = await runDir();
+    const incoming = path.join(root, "incoming");
+    await mkdir(incoming, { recursive: true });
+    await writeFile(path.join(incoming, "solve.sh"), "#!/bin/sh\necho seed\n", "utf8");
+    const bank = await ExperienceBank.open(root);
+    for (let i = 1; i <= 8; i += 1) {
+      await bank.commit({
+        inspirationId: `insp-${String(i).padStart(3, "0")}`,
+        solutionDir: incoming,
+        ok: true,
+        log: "seed",
+        score: { score: 1, higherIsBetter: true, notes: "seed" },
+      });
+    }
+    const evaluated: string[] = [];
+    const result = await runInnerLoop({
+      runDir: root,
+      maxProposals: 1,
+      maxSandboxes: 1,
+      lowWater: 0,
+      highWater: 4,
+      budget: {},
+      context: scriptedContext([{ directions: ["ninth"] }, { directions: [], stop: true }]),
+      proposal: writingProposal(),
+      sandbox: {
+        async evaluate(solutionDir) {
+          evaluated.push(path.basename(solutionDir));
+          return { ok: true, log: "ninth", score: { score: 2, higherIsBetter: true, notes: "" } };
+        },
+      },
+    });
+
+    expect(evaluated).toEqual(["insp-009"]);
+    expect(result.records).toHaveLength(9);
+    expect(result.stopReason).toBe("context-stop");
+  });
 });
 
 async function seedCrashedRun(root: string, live: { consumedMs: number; startedAt: number }): Promise<void> {

@@ -4,6 +4,7 @@ import { groupActivityEvents, readActivity, type ActivityActor, type ActivityEve
 import { ExperienceBank } from "./experience-bank.js";
 import { assessHealth, type HealthSnapshot } from "./health.js";
 import type { LiveState, LoopPhase } from "./inner-loop.js";
+import { readJsonFile } from "./json-file.js";
 
 export type StatusView = {
   phase: LoopPhase;
@@ -12,7 +13,7 @@ export type StatusView = {
   reason?: string;
   startedAt: number;
   elapsedMs: number;
-  budget: { maxSolutions: number; remainingSolutions: number };
+  budget: { maxSolutions?: number; remainingSolutions?: number; unlimited?: boolean };
   queue: Array<{ id: string; direction: string }>;
   writers: Array<{ id: string; direction: string }>;
   sandboxes: Array<{ id: string; direction: string }>;
@@ -55,7 +56,7 @@ type RunConfig = {
   maxSandboxes: number;
   lowWater: number;
   highWater: number;
-  maxSolutions: number;
+  maxSolutions?: number;
   contextMaxIdleMs: number;
 };
 
@@ -71,8 +72,8 @@ export async function buildStatus(
   opts: { now?: number } = {},
 ): Promise<StatusView> {
   const now = opts.now ?? Date.now();
-  const config = JSON.parse(await readFile(path.join(runDir, "run.json"), "utf8")) as RunConfig;
-  const live = JSON.parse(await readFile(path.join(runDir, "live.json"), "utf8")) as LiveState;
+  const config = await readJsonFile<RunConfig>(path.join(runDir, "run.json"));
+  const live = await readJsonFile<LiveState>(path.join(runDir, "live.json"));
   const bank = await ExperienceBank.open(runDir);
   const records = await bank.list();
   const bestRecord = await bank.best();
@@ -128,10 +129,13 @@ export async function buildStatus(
     startedAt: live.startedAt ?? 0,
     elapsedMs:
       live.consumedMs !== undefined ? Math.max(0, live.consumedMs) : Math.max(0, now - (live.startedAt ?? now)),
-    budget: {
-      maxSolutions: config.maxSolutions,
-      remainingSolutions: Math.max(0, config.maxSolutions - bank.generation()),
-    },
+    budget:
+      config.maxSolutions === undefined
+        ? { unlimited: true }
+        : {
+            maxSolutions: config.maxSolutions,
+            remainingSolutions: Math.max(0, config.maxSolutions - bank.generation()),
+          },
     queue: waiting.map((row) => ({ id: row.id, direction: row.direction })).sort(byInspirationId),
     writers: writers.slice().sort(byInspirationId),
     sandboxes: sandboxes.slice().sort(byInspirationId),
@@ -405,7 +409,11 @@ export function renderStatusPanel(view: StatusView): string {
       <div class="meta">
         <div>阶段：${esc(view.phase)}${view.stopReason ? ` · ${esc(view.stopReason)}` : ""}</div>
         <div class="${view.healthy ? "ok" : "bad"}">${esc(health)}</div>
-        <div>预算：还能再评 ${view.budget.remainingSolutions} / ${view.budget.maxSolutions} 份</div>
+        <div>${
+          view.budget.unlimited
+            ? "预算：不限份数"
+            : `预算：还能再评 ${view.budget.remainingSolutions} / ${view.budget.maxSolutions} 份`
+        }</div>
         <div>已跑 ${esc(formatElapsed(view.elapsedMs))}</div>
         <div>${view.context.running ? "Context 正在整理" : `Context 空闲${view.context.lastContextAt ? `（上次 ${esc(new Date(view.context.lastContextAt).toLocaleString())}）` : ""}`}</div>
       </div>
@@ -636,7 +644,11 @@ async function readQueue(runDir: string): Promise<QueueRow[]> {
   const items: QueueRow[] = [];
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
-    items.push(JSON.parse(await readFile(path.join(dir, name), "utf8")) as QueueRow);
+    try {
+      items.push(await readJsonFile<QueueRow>(path.join(dir, name)));
+    } catch {
+      continue;
+    }
   }
   return items;
 }

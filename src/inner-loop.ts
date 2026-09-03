@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ExperienceBank, type ExperienceRecord, type Score } from "./experience-bank.js";
 import { InspirationQueue, type Inspiration } from "./inspiration-queue.js";
+import { writeJsonFile } from "./json-file.js";
 import { DEFAULT_PROPOSAL_REWRITES, needsProposalRewrite } from "./proposal-rewrite.js";
 import { ResourceGates } from "./resource-gates.js";
 
@@ -64,7 +65,7 @@ export type LoopOptions = {
   maxSandboxes: number;
   lowWater: number;
   highWater: number;
-  budget: { maxSolutions: number; maxMs?: number };
+  budget: { maxSolutions?: number; maxMs?: number };
   context: ContextPort;
   proposal: ProposalPort;
   sandbox: SandboxPort;
@@ -128,7 +129,7 @@ export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
   const persist = async () => {
     live.phase = phaseOf();
     live.consumedMs = consumedNow();
-    await writeFile(path.join(opts.runDir, "live.json"), JSON.stringify(live, null, 2), "utf8");
+    await writeJsonFile(path.join(opts.runDir, "live.json"), live);
   };
 
   const phaseOf = (): LoopPhase => {
@@ -140,7 +141,9 @@ export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
   };
 
   const remainingWork = () =>
-    opts.budget.maxSolutions - bank.generation() - jobs.size;
+    opts.budget.maxSolutions === undefined
+      ? Number.POSITIVE_INFINITY
+      : opts.budget.maxSolutions - bank.generation() - jobs.size;
 
   const budgetTimeUp = () =>
     opts.budget.maxMs !== undefined && consumedNow() >= opts.budget.maxMs;
@@ -247,7 +250,11 @@ export async function runInnerLoop(opts: LoopOptions): Promise<LoopResult> {
       await persist();
 
       if (jobs.size === 0 && (remainingWork() <= 0 || (stopRequested && queue.waitingCount() === 0))) {
-        stopReason = stopRequested && bank.generation() < opts.budget.maxSolutions ? "context-stop" : "budget";
+        stopReason =
+          stopRequested &&
+          (opts.budget.maxSolutions === undefined || bank.generation() < opts.budget.maxSolutions)
+            ? "context-stop"
+            : "budget";
         break;
       }
 

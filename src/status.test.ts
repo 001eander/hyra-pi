@@ -315,6 +315,24 @@ describe("status view", () => {
     expect(renderStatusHtml(view)).toContain("1 分 30 秒");
   });
 
+  it("says the solution budget is unlimited when run.json has no cap", async () => {
+    const runDir = await seedRun();
+    await writeFile(
+      path.join(runDir, "run.json"),
+      JSON.stringify({
+        maxProposals: 2,
+        maxSandboxes: 2,
+        lowWater: 1,
+        highWater: 3,
+        contextMaxIdleMs: 5000,
+      }),
+      "utf8",
+    );
+    const view = await buildStatus(runDir, { now: 1_200 });
+    expect(view.budget).toEqual({ unlimited: true });
+    expect(renderStatusHtml(view)).toContain("不限份数");
+  });
+
   it("renders a read-only page with the best score and queue direction", async () => {
     const runDir = await seedRun();
     const html = renderStatusHtml(await buildStatus(runDir, { now: 1_200 }));

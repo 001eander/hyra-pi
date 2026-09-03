@@ -1,4 +1,5 @@
-export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+export function withTimeout<T>(promise: Promise<T>, ms: number | undefined, label: string): Promise<T> {
+  if (ms === undefined) return promise;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {

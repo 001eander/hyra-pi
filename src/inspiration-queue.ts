@@ -1,5 +1,6 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { writeJsonFile } from "./json-file.js";
 
 export type Inspiration = {
   id: string;
@@ -147,7 +148,7 @@ export class InspirationQueue {
 
   private async persist(item: Inspiration, state: "waiting" | "held"): Promise<void> {
     const file = path.join(this.runDir, "queue", `${item.id}.json`);
-    await writeFile(file, JSON.stringify({ ...item, state }, null, 2), "utf8");
+    await writeJsonFile(file, { ...item, state });
   }
 }
 
