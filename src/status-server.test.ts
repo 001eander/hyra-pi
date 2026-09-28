@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { Agent, get } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -54,6 +55,26 @@ describe("status server", () => {
       expect(json.best?.score).toBe(8);
     } finally {
       await server.close();
+    }
+  });
+
+  it("closes even when the status page keeps a keep-alive connection open", async () => {
+    const runDir = await seeded();
+    const server = await startStatusServer(runDir, 0);
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+    await new Promise<void>((resolve, reject) => {
+      get(`${server.url}/api/status`, { agent }, (res) => {
+        res.resume();
+        res.on("end", () => resolve());
+      }).on("error", reject);
+    });
+    try {
+      await Promise.race([
+        server.close(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("close timed out")), 2000)),
+      ]);
+    } finally {
+      agent.destroy();
     }
   });
 });

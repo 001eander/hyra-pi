@@ -36,6 +36,9 @@ export async function startStatusServer(runDir: string, port = 8787): Promise<St
     close: () =>
       new Promise((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
+        // The status page polls over a keep-alive connection; without this,
+        // server.close() waits forever and the process never exits.
+        server.closeAllConnections();
       }),
   };
 }
