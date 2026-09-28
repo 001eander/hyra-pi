@@ -12,6 +12,7 @@ import { ActivitySink } from "./activity.js";
 import { CONTEXT7_TOOLS, context7PiRoot } from "./context7-pi.js";
 import { finishProposalWrite } from "./proposal-result.js";
 import { withTimeout } from "./timeout.js";
+import { parseLooseJson } from "./loose-json.js";
 
 const rootDir = fileURLToPath(new URL("..", import.meta.url));
 const PROPOSAL_REVIEW_MIN_MS = 60_000;
@@ -59,15 +60,17 @@ export async function createPiContext(opts: {
             "写完本轮即停。",
           ].join("\n\n"),
         );
+        const text = await readFile(outFile, "utf8");
+        let raw: { inspirations?: Array<{ direction: string; context: string }>; stop?: boolean };
         try {
-          const raw = JSON.parse(await readFile(outFile, "utf8")) as {
-            inspirations?: Array<{ direction: string; context: string }>;
-            stop?: boolean;
-          };
-          return { inspirations: raw.inspirations ?? [], stop: raw.stop };
-        } catch {
-          return { inspirations: [], stop: false };
+          raw = parseLooseJson(text) as typeof raw;
+        } catch (err) {
+          throw new Error(
+            `无法解析 ${outFile}：${err instanceof Error ? err.message : String(err)}。` +
+              "Context 必须输出合法 JSON，字符串内部的换行要写成 \\n。",
+          );
         }
+        return { inspirations: raw.inspirations ?? [], stop: raw.stop };
       } finally {
         await stopWatch();
       }
